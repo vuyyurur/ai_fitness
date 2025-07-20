@@ -1,378 +1,290 @@
-""" import cv2
-import mediapipe as mp
-import numpy as np
-import time
-import threading
-import speech_recognition as sr
-from queue import Queue
-from core.mood_check import speak
-
-
-mp_drawing = mp.solutions.drawing_utils
-mp_pose = mp.solutions.pose
-
-# === Angle Calculation ===
-def calculate_angle(a, b, c):
-    a, b, c = np.array(a), np.array(b), np.array(c)
-    radians = np.arctan2(c[1]-b[1], c[0]-b[0]) - np.arctan2(a[1]-b[1], a[0]-b[0])
-    angle = np.abs(radians * 180.0 / np.pi)
-    return 360 - angle if angle > 180 else angle
-
-# === Voice Listener Thread ===
-def voice_listener(break_queue):
-    recognizer = sr.Recognizer()
-    mic = sr.Microphone()
-    while True:
-        try:
-            with mic as source:
-                recognizer.adjust_for_ambient_noise(source)
-                print("🎤 Listening in background...")
-                audio = recognizer.listen(source, timeout=5)
-            spoken = recognizer.recognize_google(audio).lower()
-            print(f"🎙 Heard: {spoken}")
-            if any(kw in spoken for kw in ["i'm tired", "need a break", "pause", "stop", "break time"]):
-                break_queue.put(True)
-                print("🛑 Break command detected.")
-        except Exception:
-            continue
-
-# === Simple Voice Prompt ===
-def ask_for_break_duration():
-    recognizer = sr.Recognizer()
-    mic = sr.Microphone()
-    with mic as source:
-        prompt = "How long do you want your break to be in seconds?"
-        speak(prompt)
-        print(f"🗣️ {prompt}")
-        audio = recognizer.listen(source)
-    try:
-        spoken = recognizer.recognize_google(audio).lower()
-        print(f"⏱️ You said: {spoken}")
-        digits = ''.join(filter(str.isdigit, spoken))
-        return int(digits) if digits else 10  # default to 10s if no digits
-    except:
-        print("⚠️ Couldn't understand. Defaulting to 10s break.")
-        return 10
-
-# === Break Timer Overlay ===
-def start_break_timer(seconds, frame_shape):
-    end_time = time.time() + seconds
-    while time.time() < end_time:
-        time_left = int(end_time - time.time())
-        frame = np.zeros(frame_shape, dtype=np.uint8)
-        cv2.putText(frame, f"⏸️ Break: {time_left}s", (60, 200),
-                    cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 255), 4)
-        cv2.imshow("Break Timer", frame)
-        if cv2.waitKey(1000) & 0xFF == ord('q'):
-            break
-    cv2.destroyWindow("Break Timer")
-
-# === Workout Loop ===
-def start_workout(workout_type='curl'):
-    cap = cv2.VideoCapture(0)
-    counter = 0
-    stage = None
-    calories = 0
-    plank_timer_start = None
-    plank_total_time = 0
-    break_queue = Queue()
-
-    # Start voice listener thread
-    threading.Thread(target=voice_listener, args=(break_queue,), daemon=True).start()
-
-    with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            # === Pause if user requested break ===
-            while not break_queue.empty():
-                break_queue.get()  # Clear previous break command
-                seconds = ask_for_break_duration()
-                print(f"⏸️ Taking a {seconds}-second break...")
-                start_break_timer(seconds, frame.shape)
-                print("✅ Break over. Resuming workout.")
-
-            image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            image.flags.writeable = False
-            results = pose.process(image)
-            image.flags.writeable = True
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-
-            try:
-                landmarks = results.pose_landmarks.landmark
-
-                if workout_type == 'curl':
-                    shoulder = [landmarks[11].x, landmarks[11].y]
-                    elbow = [landmarks[13].x, landmarks[13].y]
-                    wrist = [landmarks[15].x, landmarks[15].y]
-                    angle = calculate_angle(shoulder, elbow, wrist)
-
-                    if angle > 160:
-                        stage = "down"
-                    if angle < 30 and stage == "down":
-                        stage = "up"
-                        counter += 1
-                        calories += 0.5
-                        print(f"💪 Curl #{counter} | 🔥 Calories: {calories:.1f}")
-
-                elif workout_type == 'pushup':
-                    shoulder = [landmarks[11].x, landmarks[11].y]
-                    elbow = [landmarks[13].x, landmarks[13].y]
-                    wrist = [landmarks[15].x, landmarks[15].y]
-                    hip = [landmarks[23].x, landmarks[23].y]
-                    ankle = [landmarks[27].x, landmarks[27].y]
-
-                    elbow_angle = calculate_angle(shoulder, elbow, wrist)
-                    body_angle = calculate_angle(shoulder, hip, ankle)
-                    shoulder_y = shoulder[1]
-                    is_down = elbow_angle < 90 and shoulder_y > 0.6
-                    is_up = elbow_angle > 160 and shoulder_y < 0.4
-                    form_good = 165 < body_angle < 195
-
-                    if is_down and form_good:
-                        stage = "down"
-                    if is_up and stage == "down" and form_good:
-                        stage = "up"
-                        counter += 1
-                        calories += 0.5
-                        print(f"✅ Push-up #{counter} | 🔥 Calories: {calories:.1f}")
-                    elif not form_good:
-                        print("⚠️ Fix your form!")
-
-                elif workout_type == 'situp':
-                    shoulder = [landmarks[11].x, landmarks[11].y]
-                    hip = [landmarks[23].x, landmarks[23].y]
-                    knee = [landmarks[25].x, landmarks[25].y]
-                    angle = calculate_angle(shoulder, hip, knee)
-
-                    if angle > 120:
-                        stage = "down"
-                    if angle < 80 and stage == "down":
-                        stage = "up"
-                        counter += 1
-                        calories += 0.6
-                        print(f"✅ Sit-up #{counter} | 🔥 Calories: {calories:.1f}")
-
-                elif workout_type == 'squat':
-                    hip = [landmarks[23].x, landmarks[23].y]
-                    knee = [landmarks[25].x, landmarks[25].y]
-                    ankle = [landmarks[27].x, landmarks[27].y]
-                    angle = calculate_angle(hip, knee, ankle)
-
-                    if angle > 160:
-                        stage = "up"
-                    if angle < 90 and stage == "up":
-                        stage = "down"
-                        counter += 1
-                        calories += 0.7
-                        print(f"🏋️ Squat #{counter} | 🔥 Calories: {calories:.1f}")
-
-                elif workout_type == 'plank':
-                    shoulder = [landmarks[11].x, landmarks[11].y]
-                    hip = [landmarks[23].x, landmarks[23].y]
-                    ankle = [landmarks[27].x, landmarks[27].y]
-                    body_angle = calculate_angle(shoulder, hip, ankle)
-
-                    if 160 < body_angle < 195:
-                        if plank_timer_start is None:
-                            plank_timer_start = time.time()
-                        elapsed = time.time() - plank_timer_start
-                    else:
-                        if plank_timer_start:
-                            plank_total_time += time.time() - plank_timer_start
-                            plank_timer_start = None
-                        elapsed = 0
-
-                    total_time = plank_total_time + (elapsed if plank_timer_start else 0)
-                    calories = total_time / 60 * 5  # 5 cal/min
-
-                    cv2.putText(image, f"⏱ {total_time:.1f}s", (10, 60),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 2)
-                    cv2.putText(image, f"🔥 {calories:.1f} cal", (10, 100),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 255), 2)
-
-            except Exception:
-                pass
-
-            # Display counter and calories
-            if workout_type != 'plank':
-                cv2.rectangle(image, (0, 0), (250, 100), (245, 117, 16), -1)
-                cv2.putText(image, f'Reps: {counter}', (10, 35),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-                cv2.putText(image, f'🔥 {calories:.1f} cal', (10, 75),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-
-            mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
-            cv2.imshow(f'{workout_type.capitalize()} Tracker', image)
-
-            if cv2.waitKey(10) & 0xFF == ord('q'):
-                break
-
-        cap.release()
-        cv2.destroyAllWindows()
-
-        if workout_type == 'plank' and plank_timer_start:
-            plank_total_time += time.time() - plank_timer_start
-
-        print(f"✅ Workout complete!")
-        print(f"🔁 Total reps: {counter}")
-        print(f"🔥 Total calories burned: {calories:.1f} cal") """
-
-
-
 import cv2
 import mediapipe as mp
 import time
 import numpy as np
-from utils.data_logger import save_workout_data  # 🔥 Firestore logger
+from keras.models import load_model
+import joblib
+from utils.data_logger import save_workout_data
 
 mp_drawing = mp.solutions.drawing_utils
 mp_pose = mp.solutions.pose
 
+# Initialize MediaPipe Pose
+pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+
+# Load form classification model and label encoder
+try:
+    form_model = load_model('classifier/model/form_classifier_model.keras')
+    form_label_encoder = joblib.load('classifier/model/form_label_encoder.pkl')
+except Exception as e:
+    print(f"Error loading model or label encoder: {e}")
+    form_model = None
+    form_label_encoder = None
 
 def calculate_angle(a, b, c):
     a = np.array(a)
     b = np.array(b)
     c = np.array(c)
-
-    radians = np.arctan2(c[1] - b[1], c[0] - b[0]) - \
-              np.arctan2(a[1] - b[1], a[0] - b[0])
+    radians = np.arctan2(c[1] - b[1], c[0] - b[0]) - np.arctan2(a[1] - b[1], a[0] - b[0])
     angle = np.abs(radians * 180.0 / np.pi)
+    return 360 - angle if angle > 180 else angle
 
-    if angle > 180.0:
-        angle = 360 - angle
+def extract_landmarks(results):
+    if not results.pose_landmarks:
+        return None
+    return np.array([coord for lm in results.pose_landmarks.landmark for coord in (lm.x, lm.y, lm.z)], dtype=np.float32)
 
-    return angle
+def start_workout(workout_type='curl', user_id=None):
+    # Workout configuration
+    workout_config = {
+        'curls': {
+            'landmarks': [(11, 13, 15)],  # shoulder, elbow, wrist
+            'angle_ranges': {'up': (160, 180), 'down': (0, 30)},
+            'calories_per_rep': 0.5,
+            'form_labels': ['curlsgood', 'curlsbad']
+        },
+        'pushups': {
+            'landmarks': [(11, 13, 15), (11, 23, 27)],  # elbow angle, back angle
+            'angle_ranges': {'up': (150, 180, 175, 183), 'down': (0, 90, None, None)},
+            'extra_condition': lambda lm: lm[11].y < 0.4,  # shoulder_y for up
+            'calories_per_rep': 0.5,
+            'form_labels': ['pushupsgood', 'pushupsbad']
+        },
+        'situps': {
+            'landmarks': [(11, 23, 25)],  # shoulder, hip, knee
+            'angle_ranges': {'up': (120, 180), 'down': (0, 75)},
+            'calories_per_rep': 0.6,
+            'form_labels': ['situpsgood', 'situpsbad']
+        },
+        'squats': {
+            'landmarks': [(23, 25, 27)],  # hip, knee, ankle
+            'angle_ranges': {'up': (150, 180), 'down': (0, 90)},
+            'calories_per_rep': 0.7,
+            'form_labels': ['squatsgood', 'squatsbad']
+        },
+        'plank': {
+            'landmarks': [(11, 23, 27)],  # shoulder, hip, ankle for back angle
+            'angle_ranges': {'plank': (170, 190)},  # near-straight back
+            'extra_condition': lambda lm: lm[11].y > 0.6 and lm[23].y > 0.6,  # low body position
+            'calories_per_second': 0.05,
+            'form_labels': ['plankgood', 'plankbad']
+        }
+    }
 
+    # Map workout_type to internal naming
+    workout_map = {
+        'curl': 'curls',
+        'squat': 'squats',
+        'pushup': 'pushups',
+        'situp': 'situps',
+        'plank': 'plank'
+    }
 
-def start_workout(workout_type='curl', user_id=None):  # user_id added ✅
+    # Validate workout_type
+    internal_workout_type = workout_map.get(workout_type.lower() if workout_type else None, None)
+    if internal_workout_type not in workout_config:
+        print(f"Error: Invalid workout type '{workout_type}'. Supported types: {list(workout_map.keys())}")
+        return "error"
+
+    config = workout_config[internal_workout_type]
+    print(f"Starting {internal_workout_type} workout...")
+
+    # Initialize webcam
     cap = cv2.VideoCapture(0)
-    counter = 0
+    if not cap.isOpened():
+        print("Error: Could not open webcam")
+        return "error"
+
+    start_time = time.time()
+    seq_length = 30
+    landmark_seq = []
+    rep_counts = {
+        'curls': 0, 'pushups': 0, 'situps': 0, 'squats': 0,
+        'curls_good': 0, 'curls_bad': 0,
+        'pushups_good': 0, 'pushups_bad': 0,
+        'situps_good': 0, 'situps_bad': 0,
+        'squats_good': 0, 'squats_bad': 0
+    }
+    calories = 0.0
     stage = None
-    calories = 0
     plank_start_time = None
     plank_total_time = 0
+    in_plank_position = False
 
-    with mp_pose.Pose(min_detection_confidence=0.5,
-                      min_tracking_confidence=0.5) as pose:
-
+    try:
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
+                print("Error: Failed to capture frame")
                 break
 
-            image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            image.flags.writeable = False
-            results = pose.process(image)
+            img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = pose.process(img_rgb)
+            img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+            landmarks = extract_landmarks(results)
 
-            image.flags.writeable = True
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            form_pred_label = None
+            if landmarks is not None and results.pose_landmarks:
+                lm = results.pose_landmarks.landmark
+                landmark_seq.append(landmarks)
+                if len(landmark_seq) > seq_length:
+                    landmark_seq.pop(0)
 
-            try:
-                landmarks = results.pose_landmarks.landmark
+                if internal_workout_type != 'plank' and len(landmark_seq) == seq_length:
+                    # Predict form using model
+                    if form_model is not None and form_label_encoder is not None:
+                        input_data = np.expand_dims(np.array(landmark_seq), axis=0)
+                        try:
+                            form_probs = form_model.predict(input_data, verbose=0)
+                            form_pred_label = form_label_encoder.inverse_transform(np.argmax(form_probs, axis=1))[0]
+                        except Exception as e:
+                            print(f"Error predicting form: {e}")
+                            form_pred_label = None
 
-                shoulder = [landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].x,
-                            landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].y]
-                elbow = [landmarks[mp_pose.PoseLandmark.LEFT_ELBOW.value].x,
-                         landmarks[mp_pose.PoseLandmark.LEFT_ELBOW.value].y]
-                wrist = [landmarks[mp_pose.PoseLandmark.LEFT_WRIST.value].x,
-                         landmarks[mp_pose.PoseLandmark.LEFT_WRIST.value].y]
+                    # Calculate angles for rep counting
+                    angles = []
+                    for lm_indices in config['landmarks']:
+                        a, b, c = lm_indices
+                        angle = calculate_angle([lm[a].x, lm[a].y], [lm[b].x, lm[b].y], [lm[c].x, lm[c].y])
+                        angles.append(angle)
 
-                hip = [landmarks[mp_pose.PoseLandmark.LEFT_HIP.value].x,
-                       landmarks[mp_pose.PoseLandmark.LEFT_HIP.value].y]
-                knee = [landmarks[mp_pose.PoseLandmark.LEFT_KNEE.value].x,
-                        landmarks[mp_pose.PoseLandmark.LEFT_KNEE.value].y]
-                ankle = [landmarks[mp_pose.PoseLandmark.LEFT_ANKLE.value].x,
-                         landmarks[mp_pose.PoseLandmark.LEFT_ANKLE.value].y]
+                    # Fallback form detection using angles
+                    if not form_pred_label or form_pred_label not in config['form_labels']:
+                        if internal_workout_type == 'pushups':
+                            back_angle = angles[1] if len(angles) > 1 else 180
+                            form_pred_label = "pushupsgood" if 175 <= back_angle <= 183 and angles[0] > 165 and lm[11].y < 0.35 else "pushupsbad"
+                        elif internal_workout_type == 'curls':
+                            form_pred_label = "curlsgood" if angles[0] < 25 or angles[0] > 170 else "curlsbad"
+                        elif internal_workout_type == 'situps':
+                            form_pred_label = "situpsgood" if angles[0] < 50 else "situpsbad"
+                        elif internal_workout_type == 'squats':
+                            form_pred_label = "squatsgood" if angles[0] < 70 else "squatsbad"
 
-                if workout_type == 'curl':
-                    angle = calculate_angle(shoulder, elbow, wrist)
-                    if angle > 160:
-                        stage = "down"
-                    if angle < 30 and stage == 'down':
-                        stage = "up"
-                        counter += 1
-                        calories += 0.3
+                    # Rep counting logic
+                    if 'angle_ranges' in config:
+                        up_range = config['angle_ranges']['up']
+                        down_range = config['angle_ranges']['down']
+                        main_angle = angles[0]
+                        extra_condition = config.get('extra_condition', lambda lm: True)
 
-                elif workout_type == 'squat':
-                    angle = calculate_angle(hip, knee, ankle)
-                    if angle > 160:
-                        stage = "up"
-                    if angle < 90 and stage == 'up':
-                        stage = "down"
-                        counter += 1
-                        calories += 0.5
+                        if (up_range[0] <= main_angle <= up_range[1] and
+                                (len(up_range) <= 2 or (up_range[2] <= angles[1] <= up_range[3] if len(angles) > 1 else True))):
+                            stage = "up"
+                        if (down_range[0] <= main_angle <= down_range[1] and stage == "up" and
+                                extra_condition(lm)):
+                            stage = "down"
+                            rep_counts[internal_workout_type] += 1
+                            rep_counts[f"{internal_workout_type}_good" if form_pred_label.endswith("good") else f"{internal_workout_type}_bad"] += 1
+                            calories += config['calories_per_rep']
+                            print(f"✅ {internal_workout_type.capitalize()} #{rep_counts[internal_workout_type]} | Form: {'Good' if form_pred_label.endswith('good') else 'Bad'} | 🔥 {calories:.1f} cal")
 
-                elif workout_type == 'pushup':
-                    angle = calculate_angle(shoulder, elbow, wrist)
-                    if angle > 160:
-                        stage = "up"
-                    if angle < 90 and stage == 'up':
-                        stage = "down"
-                        counter += 1
-                        calories += 0.4
+                elif internal_workout_type == 'plank':
+                    # Calculate back angle for plank position
+                    angles = []
+                    for lm_indices in config['landmarks']:
+                        a, b, c = lm_indices
+                        angle = calculate_angle([lm[a].x, lm[a].y], [lm[b].x, lm[b].y], [lm[c].x, lm[c].y])
+                        angles.append(angle)
 
-                elif workout_type == 'situp':
-                    angle = calculate_angle(hip, shoulder, wrist)
-                    if angle > 150:
-                        stage = "down"
-                    if angle < 100 and stage == "down":
-                        stage = "up"
-                        counter += 1
-                        calories += 0.35
+                    # Check if in plank position
+                    plank_angle = angles[0] if angles else 180
+                    extra_condition = config.get('extra_condition', lambda lm: True)
+                    in_plank_position = (config['angle_ranges']['plank'][0] <= plank_angle <= config['angle_ranges']['plank'][1] and
+                                        extra_condition(lm))
 
-                elif workout_type == 'plank':
-                    if plank_start_time is None:
-                        plank_start_time = time.time()
-                    plank_total_time = time.time() - plank_start_time
-                    calories = plank_total_time * 0.05
+                    # Form detection for plank
+                    if len(landmark_seq) == seq_length:
+                        if form_model is not None and form_label_encoder is not None:
+                            input_data = np.expand_dims(np.array(landmark_seq), axis=0)
+                            try:
+                                form_probs = form_model.predict(input_data, verbose=0)
+                                form_pred_label = form_label_encoder.inverse_transform(np.argmax(form_probs, axis=1))[0]
+                            except Exception as e:
+                                print(f"Error predicting form: {e}")
+                                form_pred_label = None
 
-            except Exception as e:
-                print("Error:", e)
+                        if not form_pred_label or form_pred_label not in config['form_labels']:
+                            form_pred_label = "plankgood" if in_plank_position else "plankbad"
 
-            # Draw landmarks
-            mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+                    # Track plank time only when in plank position
+                    if in_plank_position:
+                        if plank_start_time is None:
+                            plank_start_time = time.time()
+                        plank_total_time += time.time() - plank_start_time
+                        calories += (time.time() - plank_start_time) * config['calories_per_second']
+                        print(f"🧘 Plank active: {int(plank_total_time)} sec | 🔥 {calories:.1f} cal")
+                    else:
+                        if plank_start_time is not None:
+                            print("⏸️ Plank paused: Not in plank position")
+                    plank_start_time = time.time() if in_plank_position else None
 
-            # Display rep count and calories
-            cv2.putText(image, f'Reps: {counter}', (10, 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            cv2.putText(image, f'Calories: {round(calories, 1)}', (10, 80),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                # Draw landmarks
+                mp_drawing.draw_landmarks(img_bgr, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
 
-            if workout_type == 'plank':
-                cv2.putText(image, f'Time: {int(plank_total_time)} sec', (10, 120),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+                # Display form feedback with border
+                if form_pred_label:
+                    border_color = (0, 255, 0) if form_pred_label.endswith("good") else (0, 0, 255)
+                    cv2.rectangle(img_bgr, (0, 0), (img_bgr.shape[1], img_bgr.shape[0]), border_color, 10)
 
-            cv2.imshow('Workout', image)
+                # Display rep counts and calories (only for current workout)
+                y = 30
+                if internal_workout_type != 'plank':
+                    cv2.putText(img_bgr, f"{internal_workout_type}: {rep_counts[internal_workout_type]}", 
+                                (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                    y += 30
+                    cv2.putText(img_bgr, f"Good: {rep_counts[f'{internal_workout_type}_good']}", 
+                                (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                    y += 30
+                    cv2.putText(img_bgr, f"Bad: {rep_counts[f'{internal_workout_type}_bad']}", 
+                                (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                    y += 30
+                else:
+                    status = "Active" if in_plank_position else "Paused"
+                    cv2.putText(img_bgr, f"Plank: {status}", (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                    y += 30
+                    cv2.putText(img_bgr, f"Time: {int(plank_total_time)} sec", (10, y),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                    y += 30
+                cv2.putText(img_bgr, f"Calories: {calories:.1f}", (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
+            cv2.imshow('Workout', img_bgr)
             if cv2.waitKey(10) & 0xFF == ord('q'):
                 break
 
-    cap.release()
-    cv2.destroyAllWindows()
+    except Exception as e:
+        print(f"Error during workout: {e}")
+        return "error"
 
-    print(f"\n✅ Workout finished!")
-    print(f"Total reps: {counter}")
-    print(f"🔥 Total calories burned: {round(calories, 1)}")
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
 
-    # Save data to Firestore ✅
-    duration = plank_total_time if workout_type == 'plank' else counter * 2  # Estimate: 2 sec per rep
+        print(f"\n✅ {internal_workout_type.capitalize()} Workout Summary:")
+        if internal_workout_type != 'plank':
+            print(f"  {internal_workout_type.capitalize()}: {rep_counts[internal_workout_type]} reps")
+            print(f"  Good: {rep_counts[f'{internal_workout_type}_good']} reps")
+            print(f"  Bad: {rep_counts[f'{internal_workout_type}_bad']} reps")
+        else:
+            print(f"  Plank Time: {int(plank_total_time)} sec")
+        print(f"  Total Calories burned: {calories:.1f} cal")
+        duration = plank_total_time if internal_workout_type == 'plank' else (time.time() - start_time) // 60
 
-    if user_id:
-        save_workout_data(
-            user_id=user_id,
-            reps=counter,
-            calories=round(calories, 1),
-            duration=int(duration)
-        )
-        print(f"✅ Data saved to Firestore for user {user_id}")
-    else:
-        print("⚠️ No user_id provided — workout data not saved.")
+        if user_id:
+            try:
+                save_workout_data(
+                    user_id=user_id,
+                    reps_dict=rep_counts,
+                    calories=round(calories, 1),
+                    duration=int(duration),
+                    plank_time=int(plank_total_time) if internal_workout_type == 'plank' else 0
+                )
+                print(f"✅ Data saved to Firestore for user {user_id}")
+            except Exception as e:
+                print(f"Error saving workout data: {e}")
+        else:
+            print("⚠️ No user_id provided — workout data not saved.")
 
+    return "done"
 
-
-
-        
-
+if __name__ == "__main__":
+    start_workout(workout_type='curl', user_id='test_user')

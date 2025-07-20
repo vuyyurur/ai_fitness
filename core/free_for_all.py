@@ -119,8 +119,6 @@ def main(user_id=None):  # <–– Only change: allow optional user_id
     'squats_good': 0,
     'squats_bad': 0}
     calories = 0.0
-    plank_timer_start = None
-    plank_total_time = 0
     stages = {'curls': None, 'pushups': None, 'situps': None, 'squats': None}
 
     # --- Setup break detection ---
