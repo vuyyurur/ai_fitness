@@ -1,1 +1,6 @@
+# Ignore specific files
+serviceAccountKey.json
+firebase_config.py
+
+# Ignore the entire myenv folder
 myenv/
