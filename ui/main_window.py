@@ -14,11 +14,9 @@ class FitnessApp(QWidget):
         self.setWindowTitle("Fitness AI App 💪")
         self.showFullScreen()
 
-        # Load custom font
         font_db = QFont("Segoe UI", 18, QFont.Weight.Bold)
         QApplication.instance().setFont(font_db)
 
-        # Header Frame
         header_frame = QFrame()
         header_frame.setStyleSheet("""
             QFrame {
@@ -30,7 +28,6 @@ class FitnessApp(QWidget):
             }
         """)
 
-        # Title and Welcome
         self.title_label = QLabel(f"Welcome, {self.display_name}! Choose Your Workout:")
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.title_label.setStyleSheet("""
@@ -41,7 +38,6 @@ class FitnessApp(QWidget):
             font-family: 'Segoe UI', Arial, sans-serif;
         """)
 
-        # Back Button
         self.back_button = QPushButton("← Back to Dashboard")
         self.back_button.setFixedSize(180, 50)
         self.back_button.setStyleSheet("""
@@ -70,13 +66,11 @@ class FitnessApp(QWidget):
         """)
         self.back_button.clicked.connect(self.go_back_to_dashboard)
 
-        # Header Layout
         header_layout = QVBoxLayout()
         header_layout.addWidget(self.back_button, alignment=Qt.AlignmentFlag.AlignLeft)
         header_layout.addWidget(self.title_label)
         header_frame.setLayout(header_layout)
 
-        # Workout icons
         icon_paths = {
             "Curl": "assets/icons/curl.png",
             "Pushup": "assets/icons/pushup.png",
@@ -86,7 +80,6 @@ class FitnessApp(QWidget):
             "Let AI Detect": "assets/icons/ai.png"
         }
 
-        # Workout Buttons
         self.workout_buttons = {}
         button_container = QFrame()
         button_container.setStyleSheet("""
@@ -142,7 +135,6 @@ class FitnessApp(QWidget):
         
         button_container.setLayout(self.buttons_grid)
 
-        # Main Layout
         layout = QVBoxLayout()
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -151,7 +143,6 @@ class FitnessApp(QWidget):
         layout.addStretch()
         self.setLayout(layout)
 
-        # Window Style
         self.setStyleSheet("""
             QWidget {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
