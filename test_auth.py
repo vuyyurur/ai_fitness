@@ -1,6 +1,5 @@
 from system.auth_manager import signup_user
 
-# Replace with your test email and password
 email = "your_test2_email@example.com"
 password = "2yourStrongPassword123"
 display_name = "Revanth2"
