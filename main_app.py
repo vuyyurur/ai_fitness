@@ -11,6 +11,4 @@ class MainAppWindow(QWidget):
         welcome_label.setStyleSheet("font-size: 18px;")
         layout.addWidget(welcome_label)
 
-        # You can add workout buttons or stats here
-
         self.setLayout(layout)
