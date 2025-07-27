@@ -7,6 +7,6 @@ display_name = "Revanth2"
 uid = signup_user(email, password, display_name)
 
 if uid:
-    print(f"✅ User created successfully with UID: {uid}")
+    print(f" User created successfully with UID: {uid}")
 else:
-    print("❌ Failed to create user.")
+    print("Failed to create user.")
