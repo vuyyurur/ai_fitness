@@ -10,7 +10,7 @@ from keras.callbacks import EarlyStopping
 
 WINDOW_SIZE = 30
 FEATURE_COUNT = 99
-DATA_DIR = 'collected_data_goodbad'  # Correct directory path
+DATA_DIR = 'collected_data_goodbad'
 
 def load_data():
     X = []
@@ -23,31 +23,26 @@ def load_data():
         filepath = os.path.join(DATA_DIR, filename)
         df = pd.read_csv(filepath)
 
-        # Drop label column if exists
         if 'label' in df.columns:
             df_features = df.drop(columns=['label'])
         else:
             df_features = df
 
-        # Check feature count
         if df_features.shape[1] != FEATURE_COUNT:
             print(f"⛔ Skipped {filename} — wrong number of features (expected {FEATURE_COUNT}, got {df_features.shape[1]})")
             continue
 
-        # Skip too short files
         if df_features.shape[0] < WINDOW_SIZE:
             print(f"⛔ Skipped {filename} — only {df_features.shape[0]} frames (need ≥ {WINDOW_SIZE})")
             continue
 
-        # Sliding window to create multiple samples per file
         for start in range(df_features.shape[0] - WINDOW_SIZE + 1):
             window = df_features.iloc[start:start + WINDOW_SIZE].values
             X.append(window)
 
-            # Extract label from the actual CSV data
             if 'label' in df.columns:
                 label_series = df['label']
-                label = label_series.iloc[0]  # Take the label from the first row
+                label = label_series.iloc[0] 
                 y.append(label)
             else:
                 print(f"⚠️ Skipped {filename} — no 'label' column found")
@@ -55,7 +50,7 @@ def load_data():
 
 
     if len(X) == 0:
-        raise ValueError("❌ No valid samples found.")
+        raise ValueError("No valid samples found.")
 
     X = np.array(X)
     y = np.array(y)
@@ -65,11 +60,11 @@ def load_data():
     y_encoded = le.fit_transform(y)
     y_categorical = to_categorical(y_encoded)
 
-    print("✅ Form classifier label classes:", le.classes_)
+    print("Form classifier label classes:", le.classes_)
 
 
-    print(f"✅ Loaded {X.shape[0]} samples with shape {X.shape[1:]} features")
-    print(f"✅ Labels: {list(le.classes_)}")
+    print(f"Loaded {X.shape[0]} samples with shape {X.shape[1:]} features")
+    print(f"Labels: {list(le.classes_)}")
     return X, y_categorical, le
 
 def build_model(input_shape, num_classes):
@@ -101,7 +96,6 @@ def main():
 
     model = build_model(input_shape=(WINDOW_SIZE, FEATURE_COUNT), num_classes=y.shape[1])
 
-    # Optionally add some noise to training data
     noise = np.random.normal(0, 0.003, X_train.shape)
     X_train_noisy = X_train + noise
 
@@ -115,7 +109,6 @@ def main():
     )
 
     model.save("form_classifier_model.keras")
-    # Save label encoder for decoding later
     import joblib
     joblib.dump(label_encoder, "form_label_encoder.pkl")
 
