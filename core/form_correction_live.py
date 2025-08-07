@@ -5,7 +5,6 @@ import mediapipe as mp
 import joblib
 from core.model_utils import extract_pose_row
 
-# Load model and label encoder
 model = joblib.load("classifier/model/form_classifier.pkl")
 label_encoder = joblib.load("classifier/model/form_label_encoder.pkl")
 
@@ -13,15 +12,15 @@ mp_pose = mp.solutions.pose
 pose = mp_pose.Pose()
 
 def get_form_label(pose_landmarks):
-    row = extract_pose_row(pose_landmarks)  # shape (99,)
-    X = np.array([row])  # shape (1, 99)
+    row = extract_pose_row(pose_landmarks)
+    X = np.array([row])  
     pred = model.predict(X)[0]
     label = label_encoder.inverse_transform([pred])[0]
     return label
 
 def main():
     cap = cv2.VideoCapture(0)
-    print("🟢 Starting form correction. Press 'q' to quit.")
+    print("Starting form correction. Press q to quit.")
 
     while cap.isOpened():
         ret, frame = cap.read()
@@ -35,13 +34,12 @@ def main():
             label = get_form_label(result.pose_landmarks)
 
             if "good" in label:
-                color = (0, 255, 0)  # Green
-                text = "✅ Good Form"
+                color = (0, 255, 0)  
+                text = "Good Form"
             else:
-                color = (0, 0, 255)  # Red
-                text = "⚠️ Fix Form"
+                color = (0, 0, 255)  
+                text = "Fix Form"
 
-            # Draw border
             frame = cv2.rectangle(frame, (0, 0), (frame.shape[1], frame.shape[0]), color, 10)
             cv2.putText(frame, label.upper(), (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.4, color, 3)
 
