@@ -9,10 +9,8 @@ from utils.data_logger import save_workout_data
 mp_drawing = mp.solutions.drawing_utils
 mp_pose = mp.solutions.pose
 
-# Initialize MediaPipe Pose
 pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
-# Load form classification model and label encoder
 try:
     form_model = load_model('classifier/model/form_classifier_model.keras')
     form_label_encoder = joblib.load('classifier/model/form_label_encoder.pkl')
@@ -35,43 +33,41 @@ def extract_landmarks(results):
     return np.array([coord for lm in results.pose_landmarks.landmark for coord in (lm.x, lm.y, lm.z)], dtype=np.float32)
 
 def start_workout(workout_type='curl', user_id=None):
-    # Workout configuration
     workout_config = {
         'curls': {
-            'landmarks': [(11, 13, 15)],  # shoulder, elbow, wrist
+            'landmarks': [(11, 13, 15)], 
             'angle_ranges': {'up': (160, 180), 'down': (0, 30)},
             'calories_per_rep': 0.5,
             'form_labels': ['curlsgood', 'curlsbad']
         },
         'pushups': {
-            'landmarks': [(11, 13, 15), (11, 23, 27)],  # elbow angle, back angle
+            'landmarks': [(11, 13, 15), (11, 23, 27)], 
             'angle_ranges': {'up': (150, 180, 175, 183), 'down': (0, 90, None, None)},
-            'extra_condition': lambda lm: lm[11].y < 0.4,  # shoulder_y for up
+            'extra_condition': lambda lm: lm[11].y < 0.4,
             'calories_per_rep': 0.5,
             'form_labels': ['pushupsgood', 'pushupsbad']
         },
         'situps': {
-            'landmarks': [(11, 23, 25)],  # shoulder, hip, knee
+            'landmarks': [(11, 23, 25)], 
             'angle_ranges': {'up': (120, 180), 'down': (0, 75)},
             'calories_per_rep': 0.6,
             'form_labels': ['situpsgood', 'situpsbad']
         },
         'squats': {
-            'landmarks': [(23, 25, 27)],  # hip, knee, ankle
+            'landmarks': [(23, 25, 27)],
             'angle_ranges': {'up': (150, 180), 'down': (0, 90)},
             'calories_per_rep': 0.7,
             'form_labels': ['squatsgood', 'squatsbad']
         },
         'plank': {
-            'landmarks': [(11, 23, 27)],  # shoulder, hip, ankle for back angle
-            'angle_ranges': {'plank': (170, 190)},  # near-straight back
-            'extra_condition': lambda lm: lm[11].y > 0.6 and lm[23].y > 0.6,  # low body position
+            'landmarks': [(11, 23, 27)], 
+            'angle_ranges': {'plank': (170, 190)},
+            'extra_condition': lambda lm: lm[11].y > 0.6 and lm[23].y > 0.6, 
             'calories_per_second': 0.05,
             'form_labels': ['plankgood', 'plankbad']
         }
     }
 
-    # Map workout_type to internal naming
     workout_map = {
         'curl': 'curls',
         'squat': 'squats',
@@ -80,7 +76,6 @@ def start_workout(workout_type='curl', user_id=None):
         'plank': 'plank'
     }
 
-    # Validate workout_type
     internal_workout_type = workout_map.get(workout_type.lower() if workout_type else None, None)
     if internal_workout_type not in workout_config:
         print(f"Error: Invalid workout type '{workout_type}'. Supported types: {list(workout_map.keys())}")
@@ -89,7 +84,6 @@ def start_workout(workout_type='curl', user_id=None):
     config = workout_config[internal_workout_type]
     print(f"Starting {internal_workout_type} workout...")
 
-    # Initialize webcam
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("Error: Could not open webcam")
@@ -131,7 +125,6 @@ def start_workout(workout_type='curl', user_id=None):
                     landmark_seq.pop(0)
 
                 if internal_workout_type != 'plank' and len(landmark_seq) == seq_length:
-                    # Predict form using model
                     if form_model is not None and form_label_encoder is not None:
                         input_data = np.expand_dims(np.array(landmark_seq), axis=0)
                         try:
@@ -141,14 +134,12 @@ def start_workout(workout_type='curl', user_id=None):
                             print(f"Error predicting form: {e}")
                             form_pred_label = None
 
-                    # Calculate angles for rep counting
                     angles = []
                     for lm_indices in config['landmarks']:
                         a, b, c = lm_indices
                         angle = calculate_angle([lm[a].x, lm[a].y], [lm[b].x, lm[b].y], [lm[c].x, lm[c].y])
                         angles.append(angle)
 
-                    # Fallback form detection using angles
                     if not form_pred_label or form_pred_label not in config['form_labels']:
                         if internal_workout_type == 'pushups':
                             back_angle = angles[1] if len(angles) > 1 else 180
@@ -160,7 +151,6 @@ def start_workout(workout_type='curl', user_id=None):
                         elif internal_workout_type == 'squats':
                             form_pred_label = "squatsgood" if angles[0] < 70 else "squatsbad"
 
-                    # Rep counting logic
                     if 'angle_ranges' in config:
                         up_range = config['angle_ranges']['up']
                         down_range = config['angle_ranges']['down']
@@ -176,23 +166,20 @@ def start_workout(workout_type='curl', user_id=None):
                             rep_counts[internal_workout_type] += 1
                             rep_counts[f"{internal_workout_type}_good" if form_pred_label.endswith("good") else f"{internal_workout_type}_bad"] += 1
                             calories += config['calories_per_rep']
-                            print(f"✅ {internal_workout_type.capitalize()} #{rep_counts[internal_workout_type]} | Form: {'Good' if form_pred_label.endswith('good') else 'Bad'} | 🔥 {calories:.1f} cal")
+                            print(f"{internal_workout_type.capitalize()} #{rep_counts[internal_workout_type]} | Form: {'Good' if form_pred_label.endswith('good') else 'Bad'} | 🔥 {calories:.1f} cal")
 
                 elif internal_workout_type == 'plank':
-                    # Calculate back angle for plank position
                     angles = []
                     for lm_indices in config['landmarks']:
                         a, b, c = lm_indices
                         angle = calculate_angle([lm[a].x, lm[a].y], [lm[b].x, lm[b].y], [lm[c].x, lm[c].y])
                         angles.append(angle)
 
-                    # Check if in plank position
                     plank_angle = angles[0] if angles else 180
                     extra_condition = config.get('extra_condition', lambda lm: True)
                     in_plank_position = (config['angle_ranges']['plank'][0] <= plank_angle <= config['angle_ranges']['plank'][1] and
                                         extra_condition(lm))
 
-                    # Form detection for plank
                     if len(landmark_seq) == seq_length:
                         if form_model is not None and form_label_encoder is not None:
                             input_data = np.expand_dims(np.array(landmark_seq), axis=0)
@@ -206,27 +193,23 @@ def start_workout(workout_type='curl', user_id=None):
                         if not form_pred_label or form_pred_label not in config['form_labels']:
                             form_pred_label = "plankgood" if in_plank_position else "plankbad"
 
-                    # Track plank time only when in plank position
                     if in_plank_position:
                         if plank_start_time is None:
                             plank_start_time = time.time()
                         plank_total_time += time.time() - plank_start_time
                         calories += (time.time() - plank_start_time) * config['calories_per_second']
-                        print(f"🧘 Plank active: {int(plank_total_time)} sec | 🔥 {calories:.1f} cal")
+                        print(f"Plank active: {int(plank_total_time)} sec | 🔥 {calories:.1f} cal")
                     else:
                         if plank_start_time is not None:
                             print("⏸️ Plank paused: Not in plank position")
                     plank_start_time = time.time() if in_plank_position else None
 
-                # Draw landmarks
                 mp_drawing.draw_landmarks(img_bgr, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
 
-                # Display form feedback with border
                 if form_pred_label:
                     border_color = (0, 255, 0) if form_pred_label.endswith("good") else (0, 0, 255)
                     cv2.rectangle(img_bgr, (0, 0), (img_bgr.shape[1], img_bgr.shape[0]), border_color, 10)
 
-                # Display rep counts and calories (only for current workout)
                 y = 30
                 if internal_workout_type != 'plank':
                     cv2.putText(img_bgr, f"{internal_workout_type}: {rep_counts[internal_workout_type]}", 
@@ -259,7 +242,7 @@ def start_workout(workout_type='curl', user_id=None):
         cap.release()
         cv2.destroyAllWindows()
 
-        print(f"\n✅ {internal_workout_type.capitalize()} Workout Summary:")
+        print(f"\n{internal_workout_type.capitalize()} Workout Summary:")
         if internal_workout_type != 'plank':
             print(f"  {internal_workout_type.capitalize()}: {rep_counts[internal_workout_type]} reps")
             print(f"  Good: {rep_counts[f'{internal_workout_type}_good']} reps")
@@ -278,11 +261,11 @@ def start_workout(workout_type='curl', user_id=None):
                     duration=int(duration),
                     plank_time=int(plank_total_time) if internal_workout_type == 'plank' else 0
                 )
-                print(f"✅ Data saved to Firestore for user {user_id}")
+                print(f"Data saved to Firestore for user {user_id}")
             except Exception as e:
                 print(f"Error saving workout data: {e}")
         else:
-            print("⚠️ No user_id provided — workout data not saved.")
+            print("No user_id provided — workout data not saved.")
 
     return "done"
 
