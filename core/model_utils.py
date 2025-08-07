@@ -18,26 +18,19 @@ def load_data(path='classifier/collected_data/*.csv'):
         try:
             df = pd.read_csv(file)
         except Exception as e:
-            print(f"❌ Could not read {file}: {e}")
+            print(f"Could not read {file}: {e}")
             continue
         
-        # Check for invalid numeric values in pose columns (all except label)
         pose_cols = [col for col in df.columns if col != 'label']
-        # Convert to numeric, coerce errors to NaN
         df[pose_cols] = df[pose_cols].apply(pd.to_numeric, errors='coerce')
 
-        # Find rows with any NaNs in pose columns
         bad_rows = df[df[pose_cols].isnull().any(axis=1)]
         if not bad_rows.empty:
-            print(f"⚠️ File {file} has {len(bad_rows)} rows with invalid numeric data. These rows will be dropped.")
-            # Optionally print the row indices or samples
-            # print(bad_rows)
-            # Drop bad rows
+            print(f"File {file} has {len(bad_rows)} rows with invalid numeric data. These rows will be dropped.")
             df = df.dropna(subset=pose_cols)
 
-        # If after dropping rows, not enough frames, skip file
         if len(df) < SEQUENCE_LENGTH:
-            print(f"⚠️ Skipping {file} because it has too few valid frames ({len(df)})")
+            print(f"Skipping {file} because it has too few valid frames ({len(df)})")
             continue
 
         label = df['label'].iloc[0]

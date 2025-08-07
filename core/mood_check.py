@@ -15,24 +15,23 @@ def listen():
     recognizer = sr.Recognizer()
 
     with sr.Microphone() as source:
-        print("🎤 Listening...")
+        print(" Listening...")
         audio = recognizer.listen(source)
 
     try:
         text = recognizer.recognize_google(audio)
-        print("🗣️ You said:", text)
+        print("You said:", text)
         return text
     except sr.UnknownValueError:
         speak("Sorry, I didn't catch that. Can you try saying that again?")
 
-        # Second attempt
         with sr.Microphone() as source:
-            print("🎤 Listening again...")
+            print("Listening again...")
             audio = recognizer.listen(source)
 
         try:
             text = recognizer.recognize_google(audio)
-            print("🗣️ You said:", text)
+            print("You said:", text)
             return text
         except sr.UnknownValueError:
             speak("Still couldn't understand you. We'll go with neutral for now.")
@@ -48,7 +47,6 @@ def listen():
 
 
 
-# Load Hugging Face emotion detection model
 emotion_pipeline = pipeline(
     "text-classification", 
     model="j-hartmann/emotion-english-distilroberta-base", 
@@ -78,21 +76,19 @@ def analyze_emotion(text):
         if emotion in responses and score > 0.6:
             return emotion
     
-    # Fallback
     fallback = fallback_keyword_emotion(text)
     if fallback:
-        print(f"⚠️ Fallback to keyword: {fallback}")
+        print(f"Fallback to keyword: {fallback}")
         return fallback
 
     return "neutral"
 
 
 
-# Predefined emotion-based responses
 responses = {
     "joy": [
         "Love that energy! Let’s get it!",
-        "You're on fire today 🔥!",
+        "You're on fire today !",
         "Awesome mood! This workout’s gonna be great!"
     ],
     "sadness": [
@@ -132,7 +128,6 @@ def main():
     user_input = listen()
     emotion = analyze_emotion(user_input)
 
-    # Respond accordingly
     reply = random.choice(responses.get(emotion, responses["neutral"]))
     speak(reply)
 
