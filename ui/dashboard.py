@@ -23,7 +23,6 @@ class Dashboard(QWidget):
         self.setWindowTitle("Fitness Dashboard")
         self.resize(900, 700)
 
-        # Main layout
         self.main_layout = QVBoxLayout()
         self.setLayout(self.main_layout)
 
@@ -695,10 +694,10 @@ class Dashboard(QWidget):
             try:
                 if sel.index == 0:
                     breakdown = "\n".join([f"{k.capitalize()}: {v}" for k, v in good.items()])
-                    text = f"✅ Good Form Breakdown:\n{breakdown}"
+                    text = f"Good Form Breakdown:\n{breakdown}"
                 else:
                     breakdown = "\n".join([f"{k.capitalize()}: {v}" for k, v in bad.items()])
-                    text = f"❌ Bad Form Breakdown:\n{breakdown}"
+                    text = f"Bad Form Breakdown:\n{breakdown}"
                 sel.annotation.set_text(text)
                 sel.annotation.get_bbox_patch().set(fc="#2A2A2A", alpha=0.9)
                 sel.annotation.set_fontsize(10)
